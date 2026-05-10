@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PhysioAI — Smart Physiotherapy Assistant</title>
+  <meta name="description" content="AI-powered physiotherapy assistant with real-time pose detection, rep counting, and form feedback." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── SETUP SCREEN ─────────────────────────────────────────────── -->
+<div id="setup-screen" class="screen active">
+  <div class="setup-bg"></div>
+
+  <header class="setup-header">
+    <div class="logo">
+      <span class="logo-icon">⚕</span>
+      <span class="logo-text">PhysioAI</span>
+    </div>
+    <p class="logo-sub">Smart Physiotherapy Assistant</p>
+  </header>
+
+  <main class="setup-main">
+    <h1 class="setup-title">Choose Your Exercise</h1>
+    <p class="setup-subtitle">Select workout, configure reps & sets, then hit Start</p>
+
+    <!-- Exercise Cards -->
+    <div class="exercise-grid" id="exercise-grid">
+      <button class="ex-card selected" data-mode="SQUATS" id="card-SQUATS">
+        <div class="ex-icon">🦵</div>
+        <div class="ex-name">Squats</div>
+        <div class="ex-desc">Lower body strength & mobility</div>
+      </button>
+      <button class="ex-card" data-mode="STS" id="card-STS">
+        <div class="ex-icon">🪑</div>
+        <div class="ex-name">Sit to Stand</div>
+        <div class="ex-desc">Functional leg & core training</div>
+      </button>
+      <button class="ex-card" data-mode="LUNGES" id="card-LUNGES">
+        <div class="ex-icon">🏃</div>
+        <div class="ex-name">Lunges</div>
+        <div class="ex-desc">Balance, glutes & quad strength</div>
+      </button>
+      <button class="ex-card" data-mode="SHOULDER_ABD" id="card-SHOULDER_ABD">
+        <div class="ex-icon">🙌</div>
+        <div class="ex-name">Shoulder Abduction</div>
+        <div class="ex-desc">Shoulder range of motion rehab</div>
+      </button>
+    </div>
+
+    <!-- Config Row -->
+    <div class="config-row">
+      <div class="config-card">
+        <label class="config-label" for="reps-input">Reps per Set</label>
+        <div class="stepper">
+          <button class="step-btn" id="reps-dec" aria-label="Decrease reps">−</button>
+          <span class="step-val" id="reps-val">10</span>
+          <button class="step-btn" id="reps-inc" aria-label="Increase reps">+</button>
+        </div>
+      </div>
+      <div class="config-card">
+        <label class="config-label" for="sets-input">Sets</label>
+        <div class="stepper">
+          <button class="step-btn" id="sets-dec" aria-label="Decrease sets">−</button>
+          <span class="step-val" id="sets-val">3</span>
+          <button class="step-btn" id="sets-inc" aria-label="Increase sets">+</button>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-start" id="btn-start">
+      <span class="btn-start-icon">▶</span> Start Session
+    </button>
+  </main>
+</div>
+
+<!-- ── EXERCISE SCREEN ─────────────────────────────────────────── -->
+<div id="exercise-screen" class="screen">
+
+  <!-- Top bar -->
+  <div class="top-bar">
+    <div class="top-logo">⚕ PhysioAI</div>
+    <div class="top-mode" id="top-mode">SQUATS</div>
+    <button class="btn-stop" id="btn-stop">■ Stop</button>
+  </div>
+
+  <div class="ex-layout">
+
+    <!-- LEFT: counters -->
+    <aside class="left-panel">
+
+      <div class="stat-card" id="card-reps">
+        <div class="stat-label">Reps</div>
+        <div class="stat-big" id="rep-counter">0</div>
+        <div class="stat-of" id="rep-of">/ 10</div>
+        <!-- Progress ring -->
+        <svg class="progress-ring" viewBox="0 0 120 120" id="ring-svg">
+          <circle class="ring-track" cx="60" cy="60" r="50"/>
+          <circle class="ring-fill" cx="60" cy="60" r="50" id="ring-fill"/>
+        </svg>
+      </div>
+
+      <div class="stat-card stat-set">
+        <div class="stat-label">Set</div>
+        <div class="set-display">
+          <span class="stat-big" id="set-counter">1</span>
+          <span class="stat-of" id="set-of">/ 3</span>
+        </div>
+        <div class="set-dots" id="set-dots"></div>
+      </div>
+
+      <div class="stat-card stat-score">
+        <div class="stat-label">Correct Reps</div>
+        <div class="score-row">
+          <div class="score-item good">
+            <span id="correct-count">0</span>
+            <small>✓ Good</small>
+          </div>
+          <div class="score-item bad">
+            <span id="incorrect-count">0</span>
+            <small>✗ Errors</small>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- CENTER: feedback -->
+    <section class="center-panel">
+
+      <!-- Camera wrapper: holds video + all overlays -->
+      <div class="camera-wrapper">
+        <div class="video-container">
+          <img id="video-feed" src="" alt="Camera Feed">
+          <div class="video-placeholder" id="video-placeholder">Initializing Camera...</div>
+        </div>
+
+        <!-- State badge — overlay top-center of video -->
+        <div class="state-badge" id="state-badge">READY</div>
+
+        <!-- Feedback strip — overlay bottom of video -->
+        <div class="feedback-box" id="feedback-box">
+          <div class="feedback-icon" id="feedback-icon">🎯</div>
+          <div class="feedback-text" id="feedback-text">Get into position and begin!</div>
+        </div>
+
+        <!-- Rep flash — overlay center of video -->
+        <div class="rep-flash" id="rep-flash"></div>
+
+        <!-- REST TIMER OVERLAY — shown between sets -->
+        <div class="rest-overlay" id="rest-overlay" style="display:none;">
+          <div class="rest-card">
+            <div class="rest-title">🏁 Set Complete!</div>
+            <div class="rest-prev-stats" id="rest-prev-stats"></div>
+            <div class="rest-timer-label">Next set in</div>
+            <div class="rest-countdown" id="rest-countdown">30</div>
+            <div class="rest-bar-wrap"><div class="rest-bar-fill" id="rest-bar-fill"></div></div>
+            <button class="btn-skip-rest" id="btn-skip-rest">⏩ Skip Rest</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Phase indicator bar — sits below the video -->
+      <div class="phase-bar">
+        <div class="phase-item" id="ph-down">DOWN</div>
+        <div class="phase-arrow">→</div>
+        <div class="phase-item" id="ph-up">UP</div>
+        <div class="phase-arrow">→</div>
+        <div class="phase-item" id="ph-down2">DOWN</div>
+        <div class="phase-label">= 1 Rep</div>
+      </div>
+    </section>
+
+    <!-- RIGHT: overall progress -->
+    <aside class="right-panel">
+      <div class="stat-card progress-card">
+        <div class="stat-label">Session Progress</div>
+        <div class="big-progress-wrap">
+          <div class="big-progress-bar">
+            <div class="big-progress-fill" id="session-fill"></div>
+          </div>
+          <div class="progress-pct" id="progress-pct">0%</div>
+        </div>
+      </div>
+
+      <div class="stat-card accuracy-card">
+        <div class="stat-label">Accuracy</div>
+        <div class="accuracy-ring-wrap">
+          <svg class="accuracy-ring" viewBox="0 0 100 100">
+            <circle class="arc-track" cx="50" cy="50" r="40"/>
+            <circle class="arc-fill" cx="50" cy="50" r="40" id="acc-fill"/>
+          </svg>
+          <div class="accuracy-pct" id="accuracy-pct">—</div>
+        </div>
+      </div>
+
+      <div class="stat-card tips-card">
+        <div class="stat-label">Quick Tips</div>
+        <ul class="tips-list" id="tips-list">
+          <li>Breathe steadily throughout</li>
+          <li>Move in a controlled tempo</li>
+          <li>Keep your core engaged</li>
+        </ul>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- ── COMPLETE SCREEN ─────────────────────────────────────────── -->
+<div id="complete-screen" class="screen">
+  <div class="complete-bg"></div>
+  <div class="complete-card">
+    <div class="complete-icon">🏆</div>
+    <h2 class="complete-title">Session Complete!</h2>
+    <div class="complete-stats" id="complete-stats"></div>
+    <div class="complete-actions">
+      <button class="btn-primary" id="btn-again">Do it Again</button>
+      <button class="btn-secondary" id="btn-home">Change Workout</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

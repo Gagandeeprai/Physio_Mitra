@@ -1,0 +1,445 @@
+/* ── app.js — PhysioAI frontend logic ──────────────────────── */
+const socket = io();
+
+// ── State ──────────────────────────────────────────────────────
+let cfg = { mode: 'SQUATS', reps: 10, sets: 3 };
+let sessionState = 'setup';   // 'setup' | 'running' | 'complete'
+let currentSet   = 1;
+let lastRepCount = 0;
+let lastSetCompleteTime = 0;  // debounce: ignore duplicate session_complete events
+
+// ── DOM refs ───────────────────────────────────────────────────
+const screens = {
+  setup:    document.getElementById('setup-screen'),
+  exercise: document.getElementById('exercise-screen'),
+  complete: document.getElementById('complete-screen'),
+};
+
+const videoFeed = document.getElementById('video-feed');
+const videoPlaceholder = document.getElementById('video-placeholder');
+const $  = id => document.getElementById(id);
+const repCounter    = $('rep-counter');
+const repOf         = $('rep-of');
+const setCounter    = $('set-counter');
+const setOf         = $('set-of');
+const correctCount  = $('correct-count');
+const incorrectCount= $('incorrect-count');
+const stateBadge    = $('state-badge');
+const feedbackBox   = $('feedback-box');
+const feedbackIcon  = $('feedback-icon');
+const feedbackText  = $('feedback-text');
+const repFlash      = $('rep-flash');
+const sessionFill   = $('session-fill');
+const progressPct   = $('progress-pct');
+const accFill       = $('acc-fill');
+const accuracyPct   = $('accuracy-pct');
+const setDots       = $('set-dots');
+const topMode       = $('top-mode');
+const ringFill      = $('ring-fill');
+
+// Rest-timer refs
+const restOverlay   = $('rest-overlay');
+const restCountdown = $('rest-countdown');
+const restBarFill   = $('rest-bar-fill');
+const restPrevStats = $('rest-prev-stats');
+
+const REST_DURATION = 30; // seconds between sets
+let   restTimerId   = null; // holds setInterval handle
+
+const TIPS = {
+  SQUATS:       ['Feet shoulder-width apart','Keep back straight','Knees track over toes'],
+  STS:          ['Use armrests if needed','Lead with your chest','Push through your heels'],
+  LUNGES:       ['Torso upright at all times','Front knee behind toes','Lower rear knee gently'],
+  SHOULDER_ABD: ['Keep elbow fully straight','Raise to shoulder height','Control the lowering phase'],
+};
+
+const ICONS = {
+  green:  '✅',
+  orange: '⚠️',
+  red:    '❌',
+  default:'🎯',
+};
+
+// ── Screen helpers ─────────────────────────────────────────────
+function showScreen(name) {
+  Object.values(screens).forEach(s => { s.classList.remove('active'); s.style.display = 'none'; });
+  const s = screens[name];
+  s.style.display = 'flex';
+  requestAnimationFrame(() => s.classList.add('active'));
+}
+
+// ── Setup screen ───────────────────────────────────────────────
+let reps = 10, sets = 3;
+
+document.querySelectorAll('.ex-card').forEach(card => {
+  card.addEventListener('click', () => {
+    document.querySelectorAll('.ex-card').forEach(c => c.classList.remove('selected'));
+    card.classList.add('selected');
+    cfg.mode = card.dataset.mode;
+  });
+});
+
+function makeStepper(decId, incId, valId, min, max, initial, onChange) {
+  let val = initial;
+  const display = $(valId);
+  display.textContent = val;
+  $(decId).addEventListener('click', () => { if (val > min) { val--; display.textContent = val; onChange(val); } });
+  $(incId).addEventListener('click', () => { if (val < max) { val++; display.textContent = val; onChange(val); } });
+  return () => val;
+}
+
+const getReps = makeStepper('reps-dec','reps-inc','reps-val', 1, 50, 10, v => { reps = v; });
+const getSets = makeStepper('sets-dec','sets-inc','sets-val', 1, 10, 3,  v => { sets = v; });
+
+$('btn-start').addEventListener('click', () => {
+  cfg.reps = getReps();
+  cfg.sets = getSets();
+  startSession();
+});
+
+// ── Session start ──────────────────────────────────────────────
+function startSession() {
+  currentSet   = 1;
+  lastRepCount = 0;
+  lastSetCompleteTime = 0;
+  sessionState = 'running';
+
+  // Cancel any in-progress rest timer from a previous set
+  if (restTimerId) { clearInterval(restTimerId); restTimerId = null; }
+  if (restOverlay) restOverlay.style.display = 'none';
+
+  // Reset video feed
+  if (videoFeed) {
+    videoFeed.style.display = 'none';
+    videoFeed.src = '';
+  }
+  if (videoPlaceholder) {
+    videoPlaceholder.style.display = 'flex';
+    videoPlaceholder.style.visibility = 'visible';
+    videoPlaceholder.textContent = 'Initializing Camera...';
+  }
+
+  topMode.textContent = modeLabel(cfg.mode);
+  buildSetDots(cfg.sets, 1);
+  setCounter.textContent  = '1';
+  setOf.textContent       = `/ ${cfg.sets}`;
+  repOf.textContent       = `/ ${cfg.reps}`;
+  repCounter.textContent  = '0';
+  correctCount.textContent   = '0';
+  incorrectCount.textContent = '0';
+  accuracyPct.textContent = '—';
+  sessionFill.style.width = '0%';
+  progressPct.textContent = '0%';
+  updateRing(0, cfg.reps);
+  updateAccRing(null);
+
+  // Tips
+  const tipsList = $('tips-list');
+  tipsList.innerHTML = '';
+  (TIPS[cfg.mode] || []).forEach(t => {
+    const li = document.createElement('li');
+    li.textContent = t;
+    tipsList.appendChild(li);
+  });
+
+  setFeedback('Get into position and begin!', 'default', '🎯');
+  stateBadge.textContent = 'READY';
+  stateBadge.className = 'state-badge';
+  resetPhase();
+
+  showScreen('exercise');
+  socket.emit('start', { mode: cfg.mode, reps: cfg.reps, sets: cfg.sets });
+}
+
+// ── Stop ───────────────────────────────────────────────────────
+$('btn-stop').addEventListener('click', () => {
+  // Cancel rest timer if it is running
+  if (restTimerId) { clearInterval(restTimerId); restTimerId = null; }
+  if (restOverlay) restOverlay.style.display = 'none';
+  socket.emit('stop');
+  sessionState = 'setup';
+  showScreen('setup');
+});
+
+// ── Socket events ──────────────────────────────────────────────
+socket.on('py_event', (data) => {
+  if (data.type === 'error') {
+    alert('⚠️ Python Error: ' + data.message + '\n\nCheck that Python is installed and the model file exists.');
+    sessionState = 'setup';
+    showScreen('setup');
+    return;
+  }
+
+  if (data.type === 'stopped' && sessionState === 'running') {
+    sessionState = 'setup';
+    showScreen('setup');
+    return;
+  }
+
+  if (data.type === 'frame' && sessionState === 'running') {
+    if (videoFeed) {
+      videoFeed.src = 'data:image/jpeg;base64,' + data.data;
+      // Use computed style to correctly detect hidden state (CSS rule vs inline style)
+      const computed = window.getComputedStyle(videoFeed);
+      if (computed.display === 'none') {
+        videoFeed.style.display = 'block';
+      }
+      if (videoPlaceholder) {
+        videoPlaceholder.style.display = 'none';
+      }
+    }
+    return;
+  }
+
+  if (sessionState !== 'running') return;
+
+  if (data.type === 'status') {
+    handleStatus(data);
+  } else if (data.type === 'session_complete') {
+    handleSetComplete(data);
+  }
+});
+
+// ── Status handler ─────────────────────────────────────────────
+function handleStatus(d) {
+  // Rep counter
+  const rep = d.rep ?? 0;
+  const targetReps = d.target_reps ?? cfg.reps;
+
+  if (rep !== lastRepCount) {
+    if (rep > lastRepCount) flashRep('+1');
+    lastRepCount = rep;
+  }
+  repCounter.textContent = rep;
+  repOf.textContent = `/ ${targetReps}`;
+  updateRing(rep, targetReps);
+
+  // Correct / incorrect
+  correctCount.textContent   = d.correct   ?? 0;
+  incorrectCount.textContent = d.incorrect ?? 0;
+
+  // Accuracy
+  const total = (d.correct ?? 0) + (d.incorrect ?? 0);
+  if (total > 0) {
+    const acc = Math.round((d.correct / total) * 100);
+    accuracyPct.textContent = acc + '%';
+    updateAccRing(acc);
+    accFill.style.stroke = acc >= 70 ? 'var(--green)' : acc >= 40 ? 'var(--orange)' : 'var(--red)';
+  }
+
+  // Session overall progress (sets * reps)
+  const totalRepsSession = cfg.sets * cfg.reps;
+  const doneRepsSession  = (currentSet - 1) * cfg.reps + rep;
+  const pct = Math.min(100, Math.round((doneRepsSession / totalRepsSession) * 100));
+  sessionFill.style.width  = pct + '%';
+  progressPct.textContent  = pct + '%';
+
+  // State badge
+  const st = (d.state ?? '').toLowerCase();
+  stateBadge.textContent = (d.state ?? 'READY').toUpperCase();
+  stateBadge.className = 'state-badge' + (
+    st.includes('down') || st.includes('sitting') ? ' state-down' :
+    st.includes('up')   || st.includes('stand')   ? ' state-up'   : '');
+
+  // Phase indicator
+  updatePhase(st);
+
+  // Feedback
+  const fb  = d.feedback ?? '';
+  const col = d.color    ?? 'green';
+  setFeedback(fb || 'Keep going…', col, ICONS[col] ?? '🎯');
+}
+
+// ── Set / session complete handler ─────────────────────────────
+function handleSetComplete(d) {
+  // Debounce: ignore rapid duplicate events
+  const now = Date.now();
+  if (now - lastSetCompleteTime < 4000) return;
+  lastSetCompleteTime = now;
+
+  if (currentSet < cfg.sets) {
+    // Show rest timer with stats from the just-completed set
+    showRestTimer(currentSet, d);
+  } else {
+    // All sets done
+    sessionState = 'complete';
+    socket.emit('stop');
+    showComplete(d);
+  }
+}
+
+// ── Rest timer between sets ─────────────────────────────────────
+function showRestTimer(completedSet, d) {
+  // Populate previous-set stats inside the overlay
+  const correct   = d.correct   ?? 0;
+  const incorrect = d.incorrect ?? 0;
+  const total     = correct + incorrect;
+  const acc       = total > 0 ? Math.round((correct / total) * 100) : 0;
+  restPrevStats.innerHTML = `
+    <div class="rps-item"><span class="rps-val" style="color:var(--green)">${correct}</span><span class="rps-lbl">Correct</span></div>
+    <div class="rps-item"><span class="rps-val" style="color:var(--red)">${incorrect}</span><span class="rps-lbl">Errors</span></div>
+    <div class="rps-item"><span class="rps-val" style="color:var(--accent2)">${acc}%</span><span class="rps-lbl">Accuracy</span></div>
+  `;
+
+  // Show overlay
+  restOverlay.style.display = 'flex';
+  restOverlay.style.animation = 'none';
+  restOverlay.offsetHeight;
+  restOverlay.style.animation = '';
+
+  let remaining = REST_DURATION;
+  restCountdown.textContent    = remaining;
+  restBarFill.style.transition = 'none';
+  restBarFill.style.width      = '100%';
+
+  function voiceSpeak(text) {
+    if ('speechSynthesis' in window) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }
+  }
+
+  voiceSpeak(`Set ${completedSet} complete! Rest for ${REST_DURATION} seconds.`);
+
+  // Kick off progress bar shrink
+  requestAnimationFrame(() => {
+    restBarFill.style.transition = `width ${REST_DURATION}s linear`;
+    restBarFill.style.width      = '0%';
+  });
+
+  if (restTimerId) clearInterval(restTimerId);
+
+  // Wire skip button
+  const skipBtn = $('btn-skip-rest');
+  const skipHandler = () => {
+    if (restTimerId) { clearInterval(restTimerId); restTimerId = null; }
+    window.speechSynthesis && window.speechSynthesis.cancel();
+    skipBtn.removeEventListener('click', skipHandler);
+    advanceToNextSet();
+  };
+  skipBtn.addEventListener('click', skipHandler);
+
+  restTimerId = setInterval(() => {
+    remaining--;
+    restCountdown.textContent = remaining;
+
+    // Pulse on tick
+    restCountdown.style.transform = 'scale(1.18)';
+    setTimeout(() => { restCountdown.style.transform = 'scale(1)'; }, 120);
+
+    if (remaining === 10) voiceSpeak('10 seconds remaining. Get ready!');
+    if (remaining === 5)  voiceSpeak('5 seconds. Get ready!');
+    if (remaining === 3)  voiceSpeak('3');
+    if (remaining === 2)  voiceSpeak('2');
+    if (remaining === 1)  voiceSpeak('1');
+
+    if (remaining <= 0) {
+      clearInterval(restTimerId);
+      restTimerId = null;
+      skipBtn.removeEventListener('click', skipHandler);
+      advanceToNextSet();
+    }
+  }, 1000);
+}
+
+function advanceToNextSet() {
+  restOverlay.style.display = 'none';
+  currentSet++;
+  buildSetDots(cfg.sets, currentSet);
+  setCounter.textContent = currentSet;
+  lastRepCount = 0;
+  socket.emit('next_set', { set: currentSet, reps: cfg.reps });
+  setFeedback(`Set ${currentSet} — Go!`, 'green', '🚀');
+}
+
+// ── Complete screen ────────────────────────────────────────────
+function showComplete(d) {
+  const cs = $('complete-stats');
+  const total    = d.total    ?? 0;
+  const correct  = d.correct  ?? 0;
+  const incorrect= d.incorrect?? 0;
+  const acc = total > 0 ? Math.round((correct / total) * 100) : 0;
+  const grade = acc >= 90 ? '🥇 Excellent' : acc >= 70 ? '🥈 Good' : acc >= 50 ? '🥉 Average' : '📈 Keep Practicing';
+
+  cs.innerHTML = `
+    <div class="cstat"><div class="cstat-val" style="color:var(--accent2)">${cfg.sets}</div><div class="cstat-lbl">Sets Done</div></div>
+    <div class="cstat"><div class="cstat-val" style="color:var(--green)">${correct}</div><div class="cstat-lbl">Correct Reps</div></div>
+    <div class="cstat"><div class="cstat-val" style="color:var(--orange)">${incorrect}</div><div class="cstat-lbl">Needs Work</div></div>
+    <div class="cstat" style="grid-column:span 3"><div class="cstat-val" style="color:var(--accent)">${acc}%</div><div class="cstat-lbl">${grade}</div></div>
+  `;
+  showScreen('complete');
+}
+
+$('btn-again').addEventListener('click', () => startSession());
+$('btn-home').addEventListener('click', () => { sessionState = 'setup'; showScreen('setup'); });
+
+// ── Helpers ────────────────────────────────────────────────────
+function setFeedback(text, color, icon) {
+  feedbackText.textContent = text;
+  feedbackIcon.textContent = icon;
+  feedbackBox.className = 'feedback-box' + (color !== 'default' ? ` fb-${color}` : '');
+}
+
+function flashRep(label) {
+  repFlash.textContent = label;
+  repFlash.style.animation = 'none';
+  repFlash.offsetHeight; // reflow
+  repFlash.style.animation = 'flash .7s ease forwards';
+}
+
+function updateRing(rep, target) {
+  const circ = 314;
+  const pct  = target > 0 ? Math.min(rep / target, 1) : 0;
+  ringFill.style.strokeDashoffset = circ - pct * circ;
+}
+
+function updateAccRing(pct) {
+  const circ = 251;
+  accFill.style.strokeDashoffset = pct != null ? circ - (pct / 100) * circ : circ;
+}
+
+function buildSetDots(total, active) {
+  setDots.innerHTML = '';
+  for (let i = 1; i <= total; i++) {
+    const d = document.createElement('div');
+    d.className = 'set-dot' + (i < active ? ' done' : i === active ? ' active' : '');
+    setDots.appendChild(d);
+  }
+}
+
+function resetPhase() {
+  ['ph-down','ph-up','ph-down2'].forEach(id => $(id).classList.remove('active'));
+}
+
+function updatePhase(state) {
+  resetPhase();
+  if (state.includes('down') || state.includes('sitting') || state.includes('flexion')) {
+    $('ph-down').classList.add('active');
+  } else if (state.includes('up') || state.includes('extension') || state.includes('stand')) {
+    $('ph-up').classList.add('active');
+  }
+}
+
+function modeLabel(m) {
+  return { SQUATS:'Squats', STS:'Sit to Stand', LUNGES:'Lunges', SHOULDER_ABD:'Shoulder Abduction' }[m] || m;
+}
+
+// ── Inject SVG gradient for ring ──────────────────────────────
+(function injectGrad() {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.id = 'svg-defs'; svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+  svg.innerHTML = `<defs>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#6c63ff"/>
+      <stop offset="100%" stop-color="#00d9ff"/>
+    </linearGradient>
+  </defs>`;
+  document.body.appendChild(svg);
+  ringFill.setAttribute('stroke','url(#ringGrad)');
+})();
+
+// Init
+if (videoFeed) videoFeed.style.display = 'none';
+showScreen('setup');
