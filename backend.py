@@ -12,6 +12,13 @@ import json
 import sys
 import base64
 
+# --- Stdout JSON emitter (read by Node.js server) ---
+_emit_lock = threading.Lock()
+def _emit(data):
+    with _emit_lock:
+        sys.stdout.write(json.dumps(data) + "\n")
+        sys.stdout.flush()
+
 # --- TTS Engine ---
 class TTSManager:
     def __init__(self):
@@ -53,7 +60,7 @@ class TTSManager:
             return
             
         if force or (now - self.last_spoken > self.cooldown):
-            self.q.put(text)
+            _emit({"type": "speak", "text": text})
             self.last_spoken = now
 
 tts = TTSManager()
@@ -107,30 +114,30 @@ class SessionManager:
         self.total_reps += 1
         if len(self.current_rep_errors) == 0:
             self.correct_reps += 1
-            # Mode-specific praise
+            # Mode-specific praise with rep count
             if exercise_mode == "SQUATS":
-                tts.speak("Good squat! Keep it up.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good squat! Keep it up.", force=True)
             elif exercise_mode == "STS":
-                tts.speak("Good stand! Lower back down slowly.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good stand! Lower back down slowly.", force=True)
             elif exercise_mode == "LUNGES":
-                tts.speak("Good lunge! Switch legs if needed.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good lunge!", force=True)
             elif exercise_mode == "SHOULDER_ABD":
-                tts.speak("Good raise! Lower your arm slowly.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good raise! Lower arm slowly.", force=True)
             else:
-                tts.speak("Good repetition", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good repetition.", force=True)
         else:
             self.incorrect_reps += 1
-            # Mode-specific correction cue
+            # Mode-specific correction cue with rep count
             if exercise_mode == "SQUATS":
-                tts.speak("Go deeper and keep your back straight.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Go deeper and keep your back straight.", force=True)
             elif exercise_mode == "STS":
-                tts.speak("Stand fully upright and extend your hips.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Stand fully upright and extend your hips.", force=True)
             elif exercise_mode == "LUNGES":
-                tts.speak("Keep your torso upright and knee behind toes.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Keep your torso upright and front knee behind toes.", force=True)
             elif exercise_mode == "SHOULDER_ABD":
-                tts.speak("Keep your elbow straight and raise higher.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Keep your elbow straight and raise higher.", force=True)
             else:
-                tts.speak("Try to improve your form", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Try to improve your form.", force=True)
             
         self.current_rep_errors.clear()
         
@@ -154,12 +161,7 @@ class SessionManager:
 
 session = SessionManager(target_reps=10)
 
-# --- Stdout JSON emitter (read by Node.js server) ---
-_emit_lock = threading.Lock()
-def _emit(data):
-    with _emit_lock:
-        sys.stdout.write(json.dumps(data) + "\n")
-        sys.stdout.flush()
+# _emit defined at top of file
 
 # --- Pose logic functions ---
 def calculate_angle(a, b, c):

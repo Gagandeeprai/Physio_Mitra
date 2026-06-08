@@ -349,6 +349,11 @@ $('btn-stop').addEventListener('click', () => {
 
 // ── Socket events ──────────────────────────────────────────────
 socket.on('py_event', (data) => {
+  if (data.type === 'speak') {
+    voiceSpeak(data.text);
+    return;
+  }
+
   if (data.type === 'error') {
     alert('⚠️ Python Error: ' + data.message + '\n\nCheck that Python is installed and the model file exists.');
     sessionState = 'setup';
@@ -402,7 +407,6 @@ function handleStatus(d) {
   if (rep !== lastRepCount) {
     if (rep > lastRepCount) {
       flashRep('+1');
-      voiceSpeak(rep.toString()); // Speak rep count out loud!
     }
     lastRepCount = rep;
   }
@@ -445,13 +449,6 @@ function handleStatus(d) {
   const col = d.color    ?? 'green';
   setFeedback(fb || 'Keep going…', col, ICONS[col] ?? '🎯');
 
-  // Real-time voice posture correction feedback
-  if (fb && fb !== lastSpokenFeedback && fb !== 'Keep going…') {
-    voiceSpeak(fb);
-    lastSpokenFeedback = fb;
-  } else if (!fb || fb === 'Keep going…') {
-    lastSpokenFeedback = '';
-  }
 }
 
 // ── Set / session complete handler ─────────────────────────────
