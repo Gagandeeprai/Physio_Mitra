@@ -199,17 +199,6 @@
         <!-- State badge — overlay top-center of video -->
         <div class="state-badge" id="state-badge">READY</div>
 
-        <!-- Sleek HUD overlay for tracking confidence and contextual onboarding alerts -->
-        <div class="hud-tracking-badge tracking-poor" id="hud-tracking-badge">
-          <span class="hud-pulse"></span>
-          <span class="hud-text" id="hud-tracking-text">Signal: Scanning...</span>
-        </div>
-
-        <div class="hud-onboarding-alert" id="hud-onboarding-alert">
-          <span class="hud-alert-icon">⚠️</span>
-          <span class="hud-alert-text" id="hud-onboarding-text">Stand facing the camera</span>
-        </div>
-
         <!-- Feedback strip — overlay bottom of video -->
         <div class="feedback-box" id="feedback-box">
           <div class="feedback-icon" id="feedback-icon">🎯</div>
@@ -232,36 +221,14 @@
         </div>
       </div>
 
-      <!-- Live AI Dashboard Cockpit Panel — sits below the video -->
-      <div class="live-dashboard" id="live-dashboard">
-        <div class="dash-state-card state-ready" id="dash-state-card">
-          <div class="dash-state-indicator" id="dash-state-indicator"></div>
-          <div class="dash-state-info">
-            <span class="dash-state-label">LIVE STATUS</span>
-            <span class="dash-state-value" id="dash-state-value">READY</span>
-          </div>
-        </div>
-
-        <div class="dash-metric-item">
-          <span class="dash-metric-label" id="metric-1-label">JOINT ANGLE</span>
-          <div class="dash-metric-value-wrap">
-            <span class="dash-metric-value" id="metric-1-val">180°</span>
-            <span class="dash-metric-target" id="metric-1-target">/ 80°</span>
-          </div>
-        </div>
-
-        <div class="dash-metric-item">
-          <span class="dash-metric-label" id="metric-2-label">DEPTH / ROM</span>
-          <div class="dash-rom-bar-wrap">
-            <div class="dash-rom-bar-fill" id="rom-bar-fill" style="width: 0%;"></div>
-          </div>
-          <span class="dash-metric-value" id="metric-2-val">0%</span>
-        </div>
-
-        <div class="dash-metric-item">
-          <span class="dash-metric-label">REP PHASE</span>
-          <span class="dash-metric-value text-accent" id="metric-phase-val">Standing</span>
-        </div>
+      <!-- Phase indicator bar — sits below the video -->
+      <div class="phase-bar">
+        <div class="phase-item" id="ph-down">DOWN</div>
+        <div class="phase-arrow">→</div>
+        <div class="phase-item" id="ph-up">UP</div>
+        <div class="phase-arrow">→</div>
+        <div class="phase-item" id="ph-down2">DOWN</div>
+        <div class="phase-label">= 1 Rep</div>
       </div>
     </section>
 
@@ -278,19 +245,13 @@
       </div>
 
       <div class="stat-card accuracy-card">
-        <div class="stat-label">Live Performance</div>
-        <div class="accuracy-flex">
-          <div class="accuracy-ring-wrap">
-            <svg class="accuracy-ring" viewBox="0 0 100 100">
-              <circle class="arc-track" cx="50" cy="50" r="40"/>
-              <circle class="arc-fill" cx="50" cy="50" r="40" id="acc-fill"/>
-            </svg>
-            <div class="accuracy-pct" id="accuracy-pct">—</div>
-          </div>
-          <div class="form-score-wrap">
-            <span class="form-score-label">FORM LEVEL</span>
-            <span class="form-score-value" id="form-score-value">Waiting for first rep</span>
-          </div>
+        <div class="stat-label">Accuracy</div>
+        <div class="accuracy-ring-wrap">
+          <svg class="accuracy-ring" viewBox="0 0 100 100">
+            <circle class="arc-track" cx="50" cy="50" r="40"/>
+            <circle class="arc-fill" cx="50" cy="50" r="40" id="acc-fill"/>
+          </svg>
+          <div class="accuracy-pct" id="accuracy-pct">—</div>
         </div>
       </div>
 
@@ -310,52 +271,13 @@
 <!-- ── COMPLETE SCREEN ─────────────────────────────────────────── -->
 <div id="complete-screen" class="screen">
   <div class="complete-bg"></div>
-  <div class="complete-card premium-report-card">
-    <div class="complete-header">
-      <div class="complete-icon">🏆</div>
-      <h2 class="complete-title">Workout Complete 🎉</h2>
-      <div class="complete-ex-name" id="complete-ex-name">SQUATS</div>
-    </div>
-    
-    <div class="report-grid">
-      <!-- Left side: Stats grid -->
-      <div class="report-stats-section">
-        <h3 class="report-section-title">📊 Key Metrics</h3>
-        <div class="complete-stats" id="complete-stats"></div>
-      </div>
-
-      <!-- Right side: Mistake Log -->
-      <div class="report-mistakes-section">
-        <h3 class="report-section-title">⚠️ Posture Mistake Logs</h3>
-        <div class="mistakes-container" id="mistakes-container">
-          <div class="mistake-placeholder">No posture errors recorded. Perfect form! 🌟</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Analytics Section: SVG Charts -->
-    <div class="complete-analytics-section">
-      <h3 class="report-section-title">📈 Session Performance Analytics</h3>
-      <div class="analytics-charts-flex">
-        <div class="chart-box">
-          <h4 class="chart-title">Accuracy Progression (Rep-by-Rep)</h4>
-          <div class="chart-canvas-wrap" id="accuracy-chart-wrap">
-            <!-- Inline SVG chart will be injected dynamically -->
-          </div>
-        </div>
-        <div class="chart-box">
-          <h4 class="chart-title">Rep Quality & Depth Performance</h4>
-          <div class="chart-canvas-wrap" id="rom-chart-wrap">
-            <!-- Inline SVG bar chart will be injected dynamically -->
-          </div>
-        </div>
-      </div>
-    </div>
-
+  <div class="complete-card">
+    <div class="complete-icon">🏆</div>
+    <h2 class="complete-title">Session Complete!</h2>
+    <div class="complete-stats" id="complete-stats"></div>
     <div class="complete-actions">
-      <button class="btn-primary" id="btn-again">⏩ Repeat Workout</button>
-      <button class="btn-secondary" id="btn-home">🏠 Start New Session</button>
-      <button class="btn-download" id="btn-download-report">📥 Download Medical Report</button>
+      <button class="btn-primary" id="btn-again">Do it Again</button>
+      <button class="btn-secondary" id="btn-home">Change Workout</button>
     </div>
   </div>
 </div>

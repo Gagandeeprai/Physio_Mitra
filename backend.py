@@ -343,20 +343,8 @@ while True:
     
     feedback = ""
     color = (0, 255, 0)
-    tracking_pct = 0
-    metrics = {}
     
     if detection_result.pose_landmarks:
-        # Calculate visibility confidence percentage of required landmarks
-        crit_landmarks = [11, 12, 23, 24, 25, 26, 27, 28] if mode in ["SQUATS", "STS", "LUNGES"] else [11, 12, 13, 14, 15, 16, 23, 24]
-        visibilities = []
-        for pose_landmarks in detection_result.pose_landmarks:
-            for idx in crit_landmarks:
-                if idx < len(pose_landmarks):
-                    visibilities.append(pose_landmarks[idx].visibility)
-        if len(visibilities) > 0:
-            tracking_pct = int(sum(visibilities) / len(visibilities) * 100)
-
         for pose_landmarks in detection_result.pose_landmarks:
             for connection in POSE_CONNECTIONS:
                 si, ei = connection
@@ -467,17 +455,6 @@ while True:
                     else:
                         feedback, color = "LOWER...", (0, 165, 255)
 
-                    # Calculate Squats metrics
-                    rom_val = int(min(100, max(0, (180 - avg_knee_angle) / 100 * 100)))
-                    metrics = {
-                         "knee_angle": int(avg_knee_angle),
-                         "hip_angle": int(avg_hip_angle),
-                         "depth_score": rom_val,
-                         "target": 80,
-                         "rom": rom_val,
-                         "phase": "Lowering" if state == "descending" else ("Hold" if state == "squatting" else ("Rising" if state == "ascending" else "Standing"))
-                    }
-
                     cv2.putText(img, f"Knee: {int(avg_knee_angle)} deg", (int(l_k_c[0])+20, int(l_k_c[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
                     cv2.putText(img, f"Hip: {int(avg_hip_angle)} deg", (int(l_k_c[0])+20, int(l_k_c[1])+30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
 
@@ -530,17 +507,6 @@ while True:
                         # Good form — clear transitional errors
                         session.current_rep_errors.discard("forward_bending")
                         session.current_rep_errors.discard("hip_extension")
-
-                    # Calculate STS metrics
-                    rom_val = int(min(100, max(0, (knee_angle - 90) / 80 * 100)))
-                    metrics = {
-                        "knee_angle": int(knee_angle),
-                        "hip_angle": int(hip_angle),
-                        "back_angle": int(back_angle),
-                        "target": 160,
-                        "rom": rom_val,
-                        "phase": "Sitting" if state == "sitting" else ("Flexion" if state == "flexion" else ("Lift-off" if state in ["lift-off", "extension"] else "Standing"))
-                    }
 
             elif mode == "LUNGES":
                 # Visibility gate: require ALL key landmarks to be visible
@@ -616,15 +582,6 @@ while True:
                     else:
                         if state == "down": feedback, color = "Good lunge form!", (0, 255, 0)
                         else: feedback, color = "Standing - step forward", (0, 255, 0)
-
-                    # Calculate Lunges metrics
-                    rom_val = int(min(100, max(0, (180 - front_knee_angle) / 90 * 100)))
-                    metrics = {
-                        "knee_angle": int(front_knee_angle),
-                        "target": 95,
-                        "rom": rom_val,
-                        "phase": "Lowering" if state == "down" else "Standing"
-                    }
 
             elif mode == "SHOULDER_ABD":
                 l_elbow, l_wrist = pose_landmarks[13], pose_landmarks[15]
@@ -752,34 +709,22 @@ while True:
                             elif feedback in ["Raise Both Arms Evenly", "Raise Arms Higher", "Raise Arms"]: color = (0,165,255)
                             else: color = (0,255,0)
 
-                        # Calculate Shoulder Abduction metrics
-                        rom_val = int(min(100, max(0, (avg_sh - 10) / 80 * 100)))
-                        metrics = {
-                            "shoulder_angle": int(avg_sh),
-                            "elbow_angle": int(avg_el),
-                            "target": 90,
-                            "rom": rom_val,
-                            "phase": "Raising" if state == "up" else "Lowering"
-                        }
-
                         cv2.putText(img, f"L:{int(l_sh)} R:{int(r_sh)}", (int(l_s_c[0])+20, int(l_s_c[1])-20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     # --- Emit real-time status JSON to stdout (read by Node.js) ---
     _emit({
-        "type":             "status",
-        "mode":             mode,
-        "state":            state,
-        "rep":              session.total_reps,
-        "target_reps":      session.target_reps,
-        "correct":          session.correct_reps,
-        "incorrect":        session.incorrect_reps,
-        "feedback":         feedback,
-        "color":            "green" if color == (0,255,0) else ("orange" if color == (0,165,255) else "red"),
-        "set":              current_set,
-        "total_sets":       total_sets,
-        "completed":        session.completed,
-        "metrics":          metrics,
-        "tracking_quality": tracking_pct
+        "type":         "status",
+        "mode":         mode,
+        "state":        state,
+        "rep":          session.total_reps,
+        "target_reps":  session.target_reps,
+        "correct":      session.correct_reps,
+        "incorrect":    session.incorrect_reps,
+        "feedback":     feedback,
+        "color":        "green" if color == (0,255,0) else ("orange" if color == (0,165,255) else "red"),
+        "set":          current_set,
+        "total_sets":   total_sets,
+        "completed":    session.completed
     })
 
     # Encode frame as JPEG and emit to UI
