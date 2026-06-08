@@ -15,66 +15,114 @@
 <div id="setup-screen" class="screen active">
   <div class="setup-bg"></div>
 
-  <header class="setup-header">
+  <!-- Top navigation bar -->
+  <nav class="setup-nav">
     <div class="logo">
       <span class="logo-icon">⚕</span>
       <span class="logo-text">PhysioAI</span>
     </div>
-    <p class="logo-sub">Smart Physiotherapy Assistant</p>
-  </header>
-
-  <main class="setup-main">
-    <h1 class="setup-title">Choose Your Exercise</h1>
-    <p class="setup-subtitle">Select workout, configure reps & sets, then hit Start</p>
-
-    <!-- Exercise Cards -->
-    <div class="exercise-grid" id="exercise-grid">
-      <button class="ex-card selected" data-mode="SQUATS" id="card-SQUATS">
-        <div class="ex-icon">🦵</div>
-        <div class="ex-name">Squats</div>
-        <div class="ex-desc">Lower body strength & mobility</div>
+    <div class="setup-nav-right">
+      <button id="btn-voice-toggle-setup" class="btn-voice voice-enabled">
+        <span class="voice-dot"></span>
+        <span class="voice-status-text">Voice: ON</span>
       </button>
-      <button class="ex-card" data-mode="STS" id="card-STS">
-        <div class="ex-icon">🪑</div>
-        <div class="ex-name">Sit to Stand</div>
-        <div class="ex-desc">Functional leg & core training</div>
-      </button>
-      <button class="ex-card" data-mode="LUNGES" id="card-LUNGES">
-        <div class="ex-icon">🏃</div>
-        <div class="ex-name">Lunges</div>
-        <div class="ex-desc">Balance, glutes & quad strength</div>
-      </button>
-      <button class="ex-card" data-mode="SHOULDER_ABD" id="card-SHOULDER_ABD">
-        <div class="ex-icon">🙌</div>
-        <div class="ex-name">Shoulder Abduction</div>
-        <div class="ex-desc">Shoulder range of motion rehab</div>
+      <button id="btn-camera-toggle-setup" class="btn-camera camera-disabled">
+        <span class="camera-dot"></span>
+        <span class="camera-status-text">Camera: OFF</span>
       </button>
     </div>
+  </nav>
 
-    <!-- Config Row -->
-    <div class="config-row">
-      <div class="config-card">
-        <label class="config-label" for="reps-input">Reps per Set</label>
-        <div class="stepper">
-          <button class="step-btn" id="reps-dec" aria-label="Decrease reps">−</button>
-          <span class="step-val" id="reps-val">10</span>
-          <button class="step-btn" id="reps-inc" aria-label="Increase reps">+</button>
-        </div>
+  <div class="setup-body">
+    <!-- LEFT: Exercise selection -->
+    <div class="setup-left">
+      <div class="setup-hero">
+        <h1 class="setup-title">Choose Your <span class="title-gradient">Exercise</span></h1>
+        <p class="setup-subtitle">Select a workout, configure your session, and start training with AI-powered form correction</p>
       </div>
-      <div class="config-card">
-        <label class="config-label" for="sets-input">Sets</label>
-        <div class="stepper">
-          <button class="step-btn" id="sets-dec" aria-label="Decrease sets">−</button>
-          <span class="step-val" id="sets-val">3</span>
-          <button class="step-btn" id="sets-inc" aria-label="Increase sets">+</button>
-        </div>
+
+      <!-- Exercise Cards with Emojis -->
+      <div class="exercise-grid" id="exercise-grid">
+        <button class="ex-card selected" data-mode="SQUATS" id="card-SQUATS">
+          <div class="ex-icon">🦵</div>
+          <div class="ex-name">Squats</div>
+          <div class="ex-desc">Lower body strength &amp; mobility</div>
+        </button>
+
+        <button class="ex-card" data-mode="STS" id="card-STS">
+          <div class="ex-icon">🪑</div>
+          <div class="ex-name">Sit to Stand</div>
+          <div class="ex-desc">Functional leg &amp; core training</div>
+        </button>
+
+        <button class="ex-card" data-mode="LUNGES" id="card-LUNGES">
+          <div class="ex-icon">🏃</div>
+          <div class="ex-name">Lunges</div>
+          <div class="ex-desc">Balance, glutes &amp; quad strength</div>
+        </button>
+
+        <button class="ex-card" data-mode="SHOULDER_ABD" id="card-SHOULDER_ABD">
+          <div class="ex-icon">🙌</div>
+          <div class="ex-name">Shoulder Abduction</div>
+          <div class="ex-desc">Shoulder range of motion rehab</div>
+        </button>
       </div>
     </div>
 
-    <button class="btn-start" id="btn-start">
-      <span class="btn-start-icon">▶</span> Start Session
-    </button>
-  </main>
+    <!-- RIGHT: Preview & Config panel -->
+    <aside class="setup-right">
+      <div class="preview-panel">
+        <!-- Exercise preview image -->
+        <div class="preview-img-wrap" id="preview-img-wrap">
+          <img src="images/squats.png" alt="Exercise preview" class="preview-img" id="preview-img" />
+          <div class="preview-img-glow"></div>
+        </div>
+
+        <!-- Exercise info -->
+        <div class="preview-info">
+          <h2 class="preview-name" id="preview-name">Squats</h2>
+          <p class="preview-desc" id="preview-desc">A fundamental lower body exercise that strengthens your quads, glutes, and core while improving mobility and balance.</p>
+        </div>
+
+        <!-- Form tips -->
+        <div class="preview-tips">
+          <div class="preview-tips-title">💡 Form Tips</div>
+          <ul class="preview-tips-list" id="preview-tips-list">
+            <li>Feet shoulder-width apart</li>
+            <li>Keep back straight and chest up</li>
+            <li>Knees track over toes, not inward</li>
+            <li>Lower until thighs are parallel to floor</li>
+          </ul>
+        </div>
+
+        <!-- Config Section -->
+        <div class="preview-config">
+          <div class="config-row">
+            <div class="config-card">
+              <label class="config-label">Reps per Set</label>
+              <div class="stepper">
+                <button class="step-btn" id="reps-dec" aria-label="Decrease reps">−</button>
+                <span class="step-val" id="reps-val">10</span>
+                <button class="step-btn" id="reps-inc" aria-label="Increase reps">+</button>
+              </div>
+            </div>
+            <div class="config-card">
+              <label class="config-label">Sets</label>
+              <div class="stepper">
+                <button class="step-btn" id="sets-dec" aria-label="Decrease sets">−</button>
+                <span class="step-val" id="sets-val">3</span>
+                <button class="step-btn" id="sets-inc" aria-label="Increase sets">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-start" id="btn-start">
+          <span class="btn-start-icon">▶</span> Start Session
+        </button>
+      </div>
+    </aside>
+  </div>
 </div>
 
 <!-- ── EXERCISE SCREEN ─────────────────────────────────────────── -->
@@ -84,7 +132,17 @@
   <div class="top-bar">
     <div class="top-logo">⚕ PhysioAI</div>
     <div class="top-mode" id="top-mode">SQUATS</div>
-    <button class="btn-stop" id="btn-stop">■ Stop</button>
+    <div class="top-bar-actions">
+      <button id="btn-voice-toggle-ex" class="btn-voice voice-enabled">
+        <span class="voice-dot"></span>
+        <span class="voice-status-text">Voice: ON</span>
+      </button>
+      <button id="btn-camera-toggle-ex" class="btn-camera camera-disabled">
+        <span class="camera-dot"></span>
+        <span class="camera-status-text">Camera: OFF</span>
+      </button>
+      <button class="btn-stop" id="btn-stop">■ Stop</button>
+    </div>
   </div>
 
   <div class="ex-layout">
@@ -141,6 +199,17 @@
         <!-- State badge — overlay top-center of video -->
         <div class="state-badge" id="state-badge">READY</div>
 
+        <!-- Sleek HUD overlay for tracking confidence and contextual onboarding alerts -->
+        <div class="hud-tracking-badge tracking-poor" id="hud-tracking-badge">
+          <span class="hud-pulse"></span>
+          <span class="hud-text" id="hud-tracking-text">Signal: Scanning...</span>
+        </div>
+
+        <div class="hud-onboarding-alert" id="hud-onboarding-alert">
+          <span class="hud-alert-icon">⚠️</span>
+          <span class="hud-alert-text" id="hud-onboarding-text">Stand facing the camera</span>
+        </div>
+
         <!-- Feedback strip — overlay bottom of video -->
         <div class="feedback-box" id="feedback-box">
           <div class="feedback-icon" id="feedback-icon">🎯</div>
@@ -163,14 +232,36 @@
         </div>
       </div>
 
-      <!-- Phase indicator bar — sits below the video -->
-      <div class="phase-bar">
-        <div class="phase-item" id="ph-down">DOWN</div>
-        <div class="phase-arrow">→</div>
-        <div class="phase-item" id="ph-up">UP</div>
-        <div class="phase-arrow">→</div>
-        <div class="phase-item" id="ph-down2">DOWN</div>
-        <div class="phase-label">= 1 Rep</div>
+      <!-- Live AI Dashboard Cockpit Panel — sits below the video -->
+      <div class="live-dashboard" id="live-dashboard">
+        <div class="dash-state-card state-ready" id="dash-state-card">
+          <div class="dash-state-indicator" id="dash-state-indicator"></div>
+          <div class="dash-state-info">
+            <span class="dash-state-label">LIVE STATUS</span>
+            <span class="dash-state-value" id="dash-state-value">READY</span>
+          </div>
+        </div>
+
+        <div class="dash-metric-item">
+          <span class="dash-metric-label" id="metric-1-label">JOINT ANGLE</span>
+          <div class="dash-metric-value-wrap">
+            <span class="dash-metric-value" id="metric-1-val">180°</span>
+            <span class="dash-metric-target" id="metric-1-target">/ 80°</span>
+          </div>
+        </div>
+
+        <div class="dash-metric-item">
+          <span class="dash-metric-label" id="metric-2-label">DEPTH / ROM</span>
+          <div class="dash-rom-bar-wrap">
+            <div class="dash-rom-bar-fill" id="rom-bar-fill" style="width: 0%;"></div>
+          </div>
+          <span class="dash-metric-value" id="metric-2-val">0%</span>
+        </div>
+
+        <div class="dash-metric-item">
+          <span class="dash-metric-label">REP PHASE</span>
+          <span class="dash-metric-value text-accent" id="metric-phase-val">Standing</span>
+        </div>
       </div>
     </section>
 
@@ -187,13 +278,19 @@
       </div>
 
       <div class="stat-card accuracy-card">
-        <div class="stat-label">Accuracy</div>
-        <div class="accuracy-ring-wrap">
-          <svg class="accuracy-ring" viewBox="0 0 100 100">
-            <circle class="arc-track" cx="50" cy="50" r="40"/>
-            <circle class="arc-fill" cx="50" cy="50" r="40" id="acc-fill"/>
-          </svg>
-          <div class="accuracy-pct" id="accuracy-pct">—</div>
+        <div class="stat-label">Live Performance</div>
+        <div class="accuracy-flex">
+          <div class="accuracy-ring-wrap">
+            <svg class="accuracy-ring" viewBox="0 0 100 100">
+              <circle class="arc-track" cx="50" cy="50" r="40"/>
+              <circle class="arc-fill" cx="50" cy="50" r="40" id="acc-fill"/>
+            </svg>
+            <div class="accuracy-pct" id="accuracy-pct">—</div>
+          </div>
+          <div class="form-score-wrap">
+            <span class="form-score-label">FORM LEVEL</span>
+            <span class="form-score-value" id="form-score-value">Waiting for first rep</span>
+          </div>
         </div>
       </div>
 
@@ -213,13 +310,52 @@
 <!-- ── COMPLETE SCREEN ─────────────────────────────────────────── -->
 <div id="complete-screen" class="screen">
   <div class="complete-bg"></div>
-  <div class="complete-card">
-    <div class="complete-icon">🏆</div>
-    <h2 class="complete-title">Session Complete!</h2>
-    <div class="complete-stats" id="complete-stats"></div>
+  <div class="complete-card premium-report-card">
+    <div class="complete-header">
+      <div class="complete-icon">🏆</div>
+      <h2 class="complete-title">Workout Complete 🎉</h2>
+      <div class="complete-ex-name" id="complete-ex-name">SQUATS</div>
+    </div>
+    
+    <div class="report-grid">
+      <!-- Left side: Stats grid -->
+      <div class="report-stats-section">
+        <h3 class="report-section-title">📊 Key Metrics</h3>
+        <div class="complete-stats" id="complete-stats"></div>
+      </div>
+
+      <!-- Right side: Mistake Log -->
+      <div class="report-mistakes-section">
+        <h3 class="report-section-title">⚠️ Posture Mistake Logs</h3>
+        <div class="mistakes-container" id="mistakes-container">
+          <div class="mistake-placeholder">No posture errors recorded. Perfect form! 🌟</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analytics Section: SVG Charts -->
+    <div class="complete-analytics-section">
+      <h3 class="report-section-title">📈 Session Performance Analytics</h3>
+      <div class="analytics-charts-flex">
+        <div class="chart-box">
+          <h4 class="chart-title">Accuracy Progression (Rep-by-Rep)</h4>
+          <div class="chart-canvas-wrap" id="accuracy-chart-wrap">
+            <!-- Inline SVG chart will be injected dynamically -->
+          </div>
+        </div>
+        <div class="chart-box">
+          <h4 class="chart-title">Rep Quality & Depth Performance</h4>
+          <div class="chart-canvas-wrap" id="rom-chart-wrap">
+            <!-- Inline SVG bar chart will be injected dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="complete-actions">
-      <button class="btn-primary" id="btn-again">Do it Again</button>
-      <button class="btn-secondary" id="btn-home">Change Workout</button>
+      <button class="btn-primary" id="btn-again">⏩ Repeat Workout</button>
+      <button class="btn-secondary" id="btn-home">🏠 Start New Session</button>
+      <button class="btn-download" id="btn-download-report">📥 Download Medical Report</button>
     </div>
   </div>
 </div>

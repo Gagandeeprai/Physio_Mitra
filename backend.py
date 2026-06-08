@@ -181,9 +181,7 @@ detector = vision.PoseLandmarker.create_from_options(options)
 POSE_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8), (9, 10), (11, 12), (11, 13), (13, 15), (15, 17), (15, 19), (15, 21), (17, 19), (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), (18, 20), (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (26, 28), (27, 29), (28, 30), (29, 31), (30, 32), (27, 31), (28, 32)]
 
 # Force DirectShow backend for instant camera initialization on Windows
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap = None
 # Window creation removed to integrate with UI
 
 def init_mode(m, speak=True):
@@ -219,10 +217,11 @@ total_sets  = 1
 init_mode(mode, speak=False)
 
 active_session = False
+camera_enabled = False
 
 # --- Stdin reader: accepts JSON commands from Node.js ---
 def _stdin_reader():
-    global current_set, total_sets, active_session
+    global current_set, total_sets, active_session, camera_enabled
     while True:
         raw = sys.stdin.readline()
         if not raw:
@@ -253,6 +252,13 @@ def _stdin_reader():
                 while not tts.q.empty():
                     try: tts.q.get_nowait()
                     except: pass
+            elif t == "camera_toggle":
+                camera_enabled = bool(cmd.get("enabled", False))
+                if not camera_enabled:
+                    # clear voice queues when camera turned off
+                    while not tts.q.empty():
+                        try: tts.q.get_nowait()
+                        except: pass
         except Exception as e:
             pass
 
@@ -260,22 +266,50 @@ _t = threading.Thread(target=_stdin_reader, daemon=True)
 _t.start()
 
 # --- Warm-up inference to prevent delay on first start ---
-success, img = cap.read()
-if success:
-    dummy_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dummy_rgb)
-    try:
-        detector.detect_for_video(mp_image, int(time.time() * 1000))
-    except: pass
+import numpy as np
+dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
+dummy_rgb = cv2.cvtColor(dummy_img, cv2.COLOR_BGR2RGB)
+mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dummy_rgb)
+try:
+    detector.detect_for_video(mp_image, int(time.time() * 1000))
+except: pass
 
 while True:
+    if not camera_enabled:
+        if cap is not None:
+            cap.release()
+            cap = None
+        time.sleep(0.1)
+        continue
+
+    # Camera is enabled: ensure cap is initialized
+    if cap is None:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        else:
+            cap = None
+            _emit({"type": "error", "message": "Failed to open webcam. Make sure it is not in use by another application."})
+            camera_enabled = False
+            time.sleep(1.0)
+            continue
+
     success, img = cap.read()
-    if not success: break
+    if not success:
+        # Camera read failed or disconnected
+        cap.release()
+        cap = None
+        time.sleep(1.0)
+        continue
+
     h, w, c = img.shape
     
     if not active_session:
-        # cap.read() blocks naturally to match camera framerate. 
-        # Do not sleep here, otherwise the OS buffer fills up and causes massive delay!
+        # If camera is enabled but no session is active, still stream raw frames to preview (if UI supports it)
+        _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        frame_b64 = base64.b64encode(buffer).decode('utf-8')
+        _emit({"type": "frame", "data": frame_b64})
         continue
     
     if session.completed:
@@ -309,8 +343,20 @@ while True:
     
     feedback = ""
     color = (0, 255, 0)
+    tracking_pct = 0
+    metrics = {}
     
     if detection_result.pose_landmarks:
+        # Calculate visibility confidence percentage of required landmarks
+        crit_landmarks = [11, 12, 23, 24, 25, 26, 27, 28] if mode in ["SQUATS", "STS", "LUNGES"] else [11, 12, 13, 14, 15, 16, 23, 24]
+        visibilities = []
+        for pose_landmarks in detection_result.pose_landmarks:
+            for idx in crit_landmarks:
+                if idx < len(pose_landmarks):
+                    visibilities.append(pose_landmarks[idx].visibility)
+        if len(visibilities) > 0:
+            tracking_pct = int(sum(visibilities) / len(visibilities) * 100)
+
         for pose_landmarks in detection_result.pose_landmarks:
             for connection in POSE_CONNECTIONS:
                 si, ei = connection
@@ -421,6 +467,17 @@ while True:
                     else:
                         feedback, color = "LOWER...", (0, 165, 255)
 
+                    # Calculate Squats metrics
+                    rom_val = int(min(100, max(0, (180 - avg_knee_angle) / 100 * 100)))
+                    metrics = {
+                         "knee_angle": int(avg_knee_angle),
+                         "hip_angle": int(avg_hip_angle),
+                         "depth_score": rom_val,
+                         "target": 80,
+                         "rom": rom_val,
+                         "phase": "Lowering" if state == "descending" else ("Hold" if state == "squatting" else ("Rising" if state == "ascending" else "Standing"))
+                    }
+
                     cv2.putText(img, f"Knee: {int(avg_knee_angle)} deg", (int(l_k_c[0])+20, int(l_k_c[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
                     cv2.putText(img, f"Hip: {int(avg_hip_angle)} deg", (int(l_k_c[0])+20, int(l_k_c[1])+30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
 
@@ -473,6 +530,17 @@ while True:
                         # Good form — clear transitional errors
                         session.current_rep_errors.discard("forward_bending")
                         session.current_rep_errors.discard("hip_extension")
+
+                    # Calculate STS metrics
+                    rom_val = int(min(100, max(0, (knee_angle - 90) / 80 * 100)))
+                    metrics = {
+                        "knee_angle": int(knee_angle),
+                        "hip_angle": int(hip_angle),
+                        "back_angle": int(back_angle),
+                        "target": 160,
+                        "rom": rom_val,
+                        "phase": "Sitting" if state == "sitting" else ("Flexion" if state == "flexion" else ("Lift-off" if state in ["lift-off", "extension"] else "Standing"))
+                    }
 
             elif mode == "LUNGES":
                 # Visibility gate: require ALL key landmarks to be visible
@@ -548,6 +616,15 @@ while True:
                     else:
                         if state == "down": feedback, color = "Good lunge form!", (0, 255, 0)
                         else: feedback, color = "Standing - step forward", (0, 255, 0)
+
+                    # Calculate Lunges metrics
+                    rom_val = int(min(100, max(0, (180 - front_knee_angle) / 90 * 100)))
+                    metrics = {
+                        "knee_angle": int(front_knee_angle),
+                        "target": 95,
+                        "rom": rom_val,
+                        "phase": "Lowering" if state == "down" else "Standing"
+                    }
 
             elif mode == "SHOULDER_ABD":
                 l_elbow, l_wrist = pose_landmarks[13], pose_landmarks[15]
@@ -675,22 +752,34 @@ while True:
                             elif feedback in ["Raise Both Arms Evenly", "Raise Arms Higher", "Raise Arms"]: color = (0,165,255)
                             else: color = (0,255,0)
 
+                        # Calculate Shoulder Abduction metrics
+                        rom_val = int(min(100, max(0, (avg_sh - 10) / 80 * 100)))
+                        metrics = {
+                            "shoulder_angle": int(avg_sh),
+                            "elbow_angle": int(avg_el),
+                            "target": 90,
+                            "rom": rom_val,
+                            "phase": "Raising" if state == "up" else "Lowering"
+                        }
+
                         cv2.putText(img, f"L:{int(l_sh)} R:{int(r_sh)}", (int(l_s_c[0])+20, int(l_s_c[1])-20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     # --- Emit real-time status JSON to stdout (read by Node.js) ---
     _emit({
-        "type":         "status",
-        "mode":         mode,
-        "state":        state,
-        "rep":          session.total_reps,
-        "target_reps":  session.target_reps,
-        "correct":      session.correct_reps,
-        "incorrect":    session.incorrect_reps,
-        "feedback":     feedback,
-        "color":        "green" if color == (0,255,0) else ("orange" if color == (0,165,255) else "red"),
-        "set":          current_set,
-        "total_sets":   total_sets,
-        "completed":    session.completed
+        "type":             "status",
+        "mode":             mode,
+        "state":            state,
+        "rep":              session.total_reps,
+        "target_reps":      session.target_reps,
+        "correct":          session.correct_reps,
+        "incorrect":        session.incorrect_reps,
+        "feedback":         feedback,
+        "color":            "green" if color == (0,255,0) else ("orange" if color == (0,165,255) else "red"),
+        "set":              current_set,
+        "total_sets":       total_sets,
+        "completed":        session.completed,
+        "metrics":          metrics,
+        "tracking_quality": tracking_pct
     })
 
     # Encode frame as JPEG and emit to UI
