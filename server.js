@@ -94,6 +94,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Camera toggle — forward to python process
+  socket.on('camera_toggle', (data) => {
+    console.log('Camera toggle received from browser:', data);
+    if (pyProc && pyProc.stdin.writable) {
+      pyProc.stdin.write(JSON.stringify({ type: 'camera_toggle', ...data }) + '\n');
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('Browser disconnected:', socket.id);
   });

@@ -12,6 +12,13 @@ import json
 import sys
 import base64
 
+# --- Stdout JSON emitter (read by Node.js server) ---
+_emit_lock = threading.Lock()
+def _emit(data):
+    with _emit_lock:
+        sys.stdout.write(json.dumps(data) + "\n")
+        sys.stdout.flush()
+
 # --- TTS Engine ---
 class TTSManager:
     def __init__(self):
@@ -53,7 +60,7 @@ class TTSManager:
             return
             
         if force or (now - self.last_spoken > self.cooldown):
-            self.q.put(text)
+            _emit({"type": "speak", "text": text})
             self.last_spoken = now
 
 tts = TTSManager()
@@ -107,30 +114,30 @@ class SessionManager:
         self.total_reps += 1
         if len(self.current_rep_errors) == 0:
             self.correct_reps += 1
-            # Mode-specific praise
+            # Mode-specific praise with rep count
             if exercise_mode == "SQUATS":
-                tts.speak("Good squat! Keep it up.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good squat! Keep it up.", force=True)
             elif exercise_mode == "STS":
-                tts.speak("Good stand! Lower back down slowly.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good stand! Lower back down slowly.", force=True)
             elif exercise_mode == "LUNGES":
-                tts.speak("Good lunge! Switch legs if needed.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good lunge!", force=True)
             elif exercise_mode == "SHOULDER_ABD":
-                tts.speak("Good raise! Lower your arm slowly.", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good raise! Lower arm slowly.", force=True)
             else:
-                tts.speak("Good repetition", force=True)
+                tts.speak(f"Rep {self.total_reps}. Good repetition.", force=True)
         else:
             self.incorrect_reps += 1
-            # Mode-specific correction cue
+            # Mode-specific correction cue with rep count
             if exercise_mode == "SQUATS":
-                tts.speak("Go deeper and keep your back straight.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Go deeper and keep your back straight.", force=True)
             elif exercise_mode == "STS":
-                tts.speak("Stand fully upright and extend your hips.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Stand fully upright and extend your hips.", force=True)
             elif exercise_mode == "LUNGES":
-                tts.speak("Keep your torso upright and knee behind toes.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Keep your torso upright and front knee behind toes.", force=True)
             elif exercise_mode == "SHOULDER_ABD":
-                tts.speak("Keep your elbow straight and raise higher.", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Keep your elbow straight and raise higher.", force=True)
             else:
-                tts.speak("Try to improve your form", force=True)
+                tts.speak(f"Rep {self.total_reps} completed with errors. Try to improve your form.", force=True)
             
         self.current_rep_errors.clear()
         
@@ -154,12 +161,7 @@ class SessionManager:
 
 session = SessionManager(target_reps=10)
 
-# --- Stdout JSON emitter (read by Node.js server) ---
-_emit_lock = threading.Lock()
-def _emit(data):
-    with _emit_lock:
-        sys.stdout.write(json.dumps(data) + "\n")
-        sys.stdout.flush()
+# _emit defined at top of file
 
 # --- Pose logic functions ---
 def calculate_angle(a, b, c):
@@ -181,9 +183,7 @@ detector = vision.PoseLandmarker.create_from_options(options)
 POSE_CONNECTIONS = [(0, 1), (1, 2), (2, 3), (3, 7), (0, 4), (4, 5), (5, 6), (6, 8), (9, 10), (11, 12), (11, 13), (13, 15), (15, 17), (15, 19), (15, 21), (17, 19), (12, 14), (14, 16), (16, 18), (16, 20), (16, 22), (18, 20), (11, 23), (12, 24), (23, 24), (23, 25), (24, 26), (25, 27), (26, 28), (27, 29), (28, 30), (29, 31), (30, 32), (27, 31), (28, 32)]
 
 # Force DirectShow backend for instant camera initialization on Windows
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap = None
 # Window creation removed to integrate with UI
 
 def init_mode(m, speak=True):
@@ -219,10 +219,11 @@ total_sets  = 1
 init_mode(mode, speak=False)
 
 active_session = False
+camera_enabled = False
 
 # --- Stdin reader: accepts JSON commands from Node.js ---
 def _stdin_reader():
-    global current_set, total_sets, active_session
+    global current_set, total_sets, active_session, camera_enabled
     while True:
         raw = sys.stdin.readline()
         if not raw:
@@ -253,6 +254,13 @@ def _stdin_reader():
                 while not tts.q.empty():
                     try: tts.q.get_nowait()
                     except: pass
+            elif t == "camera_toggle":
+                camera_enabled = bool(cmd.get("enabled", False))
+                if not camera_enabled:
+                    # clear voice queues when camera turned off
+                    while not tts.q.empty():
+                        try: tts.q.get_nowait()
+                        except: pass
         except Exception as e:
             pass
 
@@ -260,22 +268,50 @@ _t = threading.Thread(target=_stdin_reader, daemon=True)
 _t.start()
 
 # --- Warm-up inference to prevent delay on first start ---
-success, img = cap.read()
-if success:
-    dummy_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dummy_rgb)
-    try:
-        detector.detect_for_video(mp_image, int(time.time() * 1000))
-    except: pass
+import numpy as np
+dummy_img = np.zeros((480, 640, 3), dtype=np.uint8)
+dummy_rgb = cv2.cvtColor(dummy_img, cv2.COLOR_BGR2RGB)
+mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=dummy_rgb)
+try:
+    detector.detect_for_video(mp_image, int(time.time() * 1000))
+except: pass
 
 while True:
+    if not camera_enabled:
+        if cap is not None:
+            cap.release()
+            cap = None
+        time.sleep(0.1)
+        continue
+
+    # Camera is enabled: ensure cap is initialized
+    if cap is None:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        else:
+            cap = None
+            _emit({"type": "error", "message": "Failed to open webcam. Make sure it is not in use by another application."})
+            camera_enabled = False
+            time.sleep(1.0)
+            continue
+
     success, img = cap.read()
-    if not success: break
+    if not success:
+        # Camera read failed or disconnected
+        cap.release()
+        cap = None
+        time.sleep(1.0)
+        continue
+
     h, w, c = img.shape
     
     if not active_session:
-        # cap.read() blocks naturally to match camera framerate. 
-        # Do not sleep here, otherwise the OS buffer fills up and causes massive delay!
+        # If camera is enabled but no session is active, still stream raw frames to preview (if UI supports it)
+        _, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        frame_b64 = base64.b64encode(buffer).decode('utf-8')
+        _emit({"type": "frame", "data": frame_b64})
         continue
     
     if session.completed:

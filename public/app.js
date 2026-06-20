@@ -7,6 +7,10 @@ let sessionState = 'setup';   // 'setup' | 'running' | 'complete'
 let currentSet   = 1;
 let lastRepCount = 0;
 let lastSetCompleteTime = 0;  // debounce: ignore duplicate session_complete events
+let cameraEnabled = false;
+let browserStream = null;
+let voiceEnabled = true; // Voice guidance enabled by default
+let lastSpokenFeedback = '';
 
 // ── DOM refs ───────────────────────────────────────────────────
 const screens = {
@@ -71,11 +75,80 @@ function showScreen(name) {
 // ── Setup screen ───────────────────────────────────────────────
 let reps = 10, sets = 3;
 
+// ── Exercise preview data ──────────────────────────────────────
+const EXERCISE_PREVIEW = {
+  SQUATS: {
+    image: 'images/squats.png',
+    name: 'Squats',
+    desc: 'A fundamental lower body exercise that strengthens your quads, glutes, and core while improving mobility and balance.',
+    tips: [
+      'Feet shoulder-width apart',
+      'Keep back straight and chest up',
+      'Knees track over toes, not inward',
+      'Lower until thighs are parallel to floor'
+    ]
+  },
+  STS: {
+    image: 'images/sts.png',
+    name: 'Sit to Stand',
+    desc: 'A functional rehabilitation exercise that builds leg and core strength essential for daily activities like getting up from a chair.',
+    tips: [
+      'Sit at the edge of a sturdy chair',
+      'Lean forward slightly before standing',
+      'Push through your heels to rise',
+      'Stand fully upright, extend hips'
+    ]
+  },
+  LUNGES: {
+    image: 'images/lunges.png',
+    name: 'Lunges',
+    desc: 'A unilateral exercise that builds balance, glute and quad strength while improving coordination and lower body stability.',
+    tips: [
+      'Stand at 45° angle to camera',
+      'Keep your torso upright throughout',
+      'Front knee stays behind toes',
+      'Lower rear knee gently toward floor'
+    ]
+  },
+  SHOULDER_ABD: {
+    image: 'images/shoulder_abd.png',
+    name: 'Shoulder Abduction',
+    desc: 'A rehabilitation exercise targeting shoulder range of motion. Strengthens deltoids and rotator cuff muscles for injury recovery.',
+    tips: [
+      'Keep elbows fully straight',
+      'Raise arms sideways to shoulder height',
+      'Control the movement both up and down',
+      'Keep torso upright, avoid leaning'
+    ]
+  }
+};
+
+function updatePreview(mode) {
+  const data = EXERCISE_PREVIEW[mode];
+  if (!data) return;
+  const previewImg = $('preview-img');
+  const previewName = $('preview-name');
+  const previewDesc = $('preview-desc');
+  const previewTipsList = $('preview-tips-list');
+  if (previewImg) previewImg.src = data.image;
+  if (previewName) previewName.textContent = data.name;
+  if (previewDesc) previewDesc.textContent = data.desc;
+  if (previewTipsList) {
+    previewTipsList.innerHTML = '';
+    data.tips.forEach(tip => {
+      const li = document.createElement('li');
+      li.textContent = tip;
+      previewTipsList.appendChild(li);
+    });
+  }
+}
+
 document.querySelectorAll('.ex-card').forEach(card => {
   card.addEventListener('click', () => {
     document.querySelectorAll('.ex-card').forEach(c => c.classList.remove('selected'));
     card.classList.add('selected');
     cfg.mode = card.dataset.mode;
+    updatePreview(cfg.mode);
   });
 });
 
@@ -91,14 +164,127 @@ function makeStepper(decId, incId, valId, min, max, initial, onChange) {
 const getReps = makeStepper('reps-dec','reps-inc','reps-val', 1, 50, 10, v => { reps = v; });
 const getSets = makeStepper('sets-dec','sets-inc','sets-val', 1, 10, 3,  v => { sets = v; });
 
-$('btn-start').addEventListener('click', () => {
+// ── Voice Assistant ───────────────────────────────────────────
+function voiceSpeak(text) {
+  if (voiceEnabled && 'speechSynthesis' in window) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.15; // Slightly faster for quick fluid guidance
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  }
+}
+
+function toggleVoice(forceState) {
+  voiceEnabled = forceState !== undefined ? forceState : !voiceEnabled;
+  updateVoiceUI(voiceEnabled);
+  if (!voiceEnabled) {
+    window.speechSynthesis && window.speechSynthesis.cancel();
+  } else {
+    voiceSpeak('Voice assistant enabled');
+  }
+}
+
+function updateVoiceUI(enabled) {
+  const buttons = [$('btn-voice-toggle-setup'), $('btn-voice-toggle-ex')];
+  buttons.forEach(btn => {
+    if (!btn) return;
+    if (enabled) {
+      btn.className = 'btn-voice voice-enabled';
+      btn.querySelector('.voice-status-text').textContent = 'Voice: ON';
+    } else {
+      btn.className = 'btn-voice voice-disabled';
+      btn.querySelector('.voice-status-text').textContent = 'Voice: OFF';
+    }
+  });
+}
+
+// ── Camera Toggle & Permissions ───────────────────────────────
+async function toggleCamera(forceState) {
+  const targetState = forceState !== undefined ? forceState : !cameraEnabled;
+  
+  if (targetState) {
+    try {
+      // Ask user for browser camera permission
+      browserStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      
+      // Stop the browser stream track immediately to save resources,
+      // as backend OpenCV is doing the actual capturing.
+      browserStream.getTracks().forEach(track => track.stop());
+      browserStream = null;
+      
+      cameraEnabled = true;
+      updateCameraUI(true);
+      socket.emit('camera_toggle', { enabled: true });
+      
+      // Reset UI elements if running
+      if (sessionState === 'running') {
+        if (videoPlaceholder) {
+          videoPlaceholder.textContent = 'Initializing Camera...';
+        }
+      }
+    } catch (err) {
+      console.error('Camera access error:', err);
+      alert('⚠️ Camera Access Denied or Not Found.\n\nPlease allow camera permissions in your browser to use the AI Physiotherapy Assistant.');
+      cameraEnabled = false;
+      updateCameraUI(false);
+      socket.emit('camera_toggle', { enabled: false });
+    }
+  } else {
+    cameraEnabled = false;
+    if (browserStream) {
+      browserStream.getTracks().forEach(track => track.stop());
+      browserStream = null;
+    }
+    updateCameraUI(false);
+    socket.emit('camera_toggle', { enabled: false });
+    
+    // Hide active video feed and show off placeholder if running
+    if (sessionState === 'running') {
+      if (videoFeed) videoFeed.style.display = 'none';
+      if (videoPlaceholder) {
+        videoPlaceholder.style.display = 'flex';
+        videoPlaceholder.style.visibility = 'visible';
+        videoPlaceholder.textContent = 'Camera is Turned OFF. Enable it from the top-right button.';
+      }
+    }
+  }
+}
+
+function updateCameraUI(enabled) {
+  const buttons = [$('btn-camera-toggle-setup'), $('btn-camera-toggle-ex')];
+  buttons.forEach(btn => {
+    if (!btn) return;
+    if (enabled) {
+      btn.className = 'btn-camera camera-enabled';
+      btn.querySelector('.camera-status-text').textContent = 'Camera: ON';
+    } else {
+      btn.className = 'btn-camera camera-disabled';
+      btn.querySelector('.camera-status-text').textContent = 'Camera: OFF';
+    }
+  });
+}
+
+$('btn-start').addEventListener('click', async () => {
   cfg.reps = getReps();
   cfg.sets = getSets();
-  startSession();
+  await startSession();
 });
 
 // ── Session start ──────────────────────────────────────────────
-function startSession() {
+async function startSession() {
+  if (!cameraEnabled) {
+    const proceed = confirm('📷 Camera is currently OFF.\n\nWould you like to turn it ON and grant camera permissions to start tracking your movements?');
+    if (proceed) {
+      await toggleCamera(true);
+      if (!cameraEnabled) {
+        // User denied or failed to turn camera ON, abort session start
+        return;
+      }
+    } else {
+      return;
+    }
+  }
+
   currentSet   = 1;
   lastRepCount = 0;
   lastSetCompleteTime = 0;
@@ -163,6 +349,11 @@ $('btn-stop').addEventListener('click', () => {
 
 // ── Socket events ──────────────────────────────────────────────
 socket.on('py_event', (data) => {
+  if (data.type === 'speak') {
+    voiceSpeak(data.text);
+    return;
+  }
+
   if (data.type === 'error') {
     alert('⚠️ Python Error: ' + data.message + '\n\nCheck that Python is installed and the model file exists.');
     sessionState = 'setup';
@@ -177,7 +368,7 @@ socket.on('py_event', (data) => {
   }
 
   if (data.type === 'frame' && sessionState === 'running') {
-    if (videoFeed) {
+    if (cameraEnabled && videoFeed) {
       videoFeed.src = 'data:image/jpeg;base64,' + data.data;
       // Use computed style to correctly detect hidden state (CSS rule vs inline style)
       const computed = window.getComputedStyle(videoFeed);
@@ -187,11 +378,18 @@ socket.on('py_event', (data) => {
       if (videoPlaceholder) {
         videoPlaceholder.style.display = 'none';
       }
+    } else if (!cameraEnabled) {
+      if (videoFeed) videoFeed.style.display = 'none';
+      if (videoPlaceholder) {
+        videoPlaceholder.style.display = 'flex';
+        videoPlaceholder.style.visibility = 'visible';
+        videoPlaceholder.textContent = 'Camera is Turned OFF. Enable it from the top-right button.';
+      }
     }
     return;
   }
 
-  if (sessionState !== 'running') return;
+  if (sessionState !== 'running' || !cameraEnabled) return;
 
   if (data.type === 'status') {
     handleStatus(data);
@@ -207,7 +405,9 @@ function handleStatus(d) {
   const targetReps = d.target_reps ?? cfg.reps;
 
   if (rep !== lastRepCount) {
-    if (rep > lastRepCount) flashRep('+1');
+    if (rep > lastRepCount) {
+      flashRep('+1');
+    }
     lastRepCount = rep;
   }
   repCounter.textContent = rep;
@@ -248,6 +448,7 @@ function handleStatus(d) {
   const fb  = d.feedback ?? '';
   const col = d.color    ?? 'green';
   setFeedback(fb || 'Keep going…', col, ICONS[col] ?? '🎯');
+
 }
 
 // ── Set / session complete handler ─────────────────────────────
@@ -264,6 +465,7 @@ function handleSetComplete(d) {
     // All sets done
     sessionState = 'complete';
     socket.emit('stop');
+    voiceSpeak("Session complete! Excellent job, you have completed all your sets!");
     showComplete(d);
   }
 }
@@ -292,14 +494,7 @@ function showRestTimer(completedSet, d) {
   restBarFill.style.transition = 'none';
   restBarFill.style.width      = '100%';
 
-  function voiceSpeak(text) {
-    if ('speechSynthesis' in window) {
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.1;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-    }
-  }
+
 
   voiceSpeak(`Set ${completedSet} complete! Rest for ${REST_DURATION} seconds.`);
 
@@ -440,6 +635,25 @@ function modeLabel(m) {
   ringFill.setAttribute('stroke','url(#ringGrad)');
 })();
 
+// Socket connection camera state synchronization
+socket.on('connect', () => {
+  console.log('Socket.io connected to server, syncing camera state:', cameraEnabled);
+  socket.emit('camera_toggle', { enabled: cameraEnabled });
+});
+
 // Init
 if (videoFeed) videoFeed.style.display = 'none';
+
+const setupToggle = $('btn-camera-toggle-setup');
+const exToggle = $('btn-camera-toggle-ex');
+if (setupToggle) setupToggle.addEventListener('click', () => toggleCamera());
+if (exToggle) exToggle.addEventListener('click', () => toggleCamera());
+
+const setupVoiceToggle = $('btn-voice-toggle-setup');
+const exVoiceToggle = $('btn-voice-toggle-ex');
+if (setupVoiceToggle) setupVoiceToggle.addEventListener('click', () => toggleVoice());
+if (exVoiceToggle) exVoiceToggle.addEventListener('click', () => toggleVoice());
+
+updateCameraUI(cameraEnabled);
+updateVoiceUI(voiceEnabled);
 showScreen('setup');
