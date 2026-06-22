@@ -219,6 +219,17 @@
             <button class="btn-skip-rest" id="btn-skip-rest">⏩ Skip Rest</button>
           </div>
         </div>
+
+        <!-- INJURY OVERLAY — shown if injury risk detected -->
+        <div class="injury-overlay" id="injury-overlay" style="display:none;">
+          <div class="injury-card">
+            <div class="injury-icon">⚠️</div>
+            <div class="injury-title">Safety Warning</div>
+            <div class="injury-msg">Injury risk detected due to repeated excessive forward lean.</div>
+            <div class="injury-desc">Your set has been stopped for your safety. Please review your form, maintain a straight back, and restart the set.</div>
+            <button class="btn-injury-ok" id="btn-injury-ok">Acknowledge & Restart</button>
+          </div>
+        </div>
       </div>
 
       <!-- Phase indicator bar — sits below the video -->
@@ -271,14 +282,24 @@
 <!-- ── COMPLETE SCREEN ─────────────────────────────────────────── -->
 <div id="complete-screen" class="screen">
   <div class="complete-bg"></div>
-  <div class="complete-card">
-    <div class="complete-icon">🏆</div>
-    <h2 class="complete-title">Session Complete!</h2>
-    <div class="complete-stats" id="complete-stats"></div>
-    <div class="complete-actions">
-      <button class="btn-primary" id="btn-again">Do it Again</button>
-      <button class="btn-secondary" id="btn-home">Change Workout</button>
+  <div class="complete-card" id="complete-card">
+    
+    <!-- LEFT SIDE: Basic Stats -->
+    <div class="complete-left">
+      <div class="complete-icon">🏆</div>
+      <h2 class="complete-title">Session Complete!</h2>
+      <div class="complete-stats" id="complete-stats"></div>
+      <div class="complete-actions">
+        <button class="btn-primary" id="btn-again">Do it Again</button>
+        <button class="btn-secondary" id="btn-home">Change Workout</button>
+      </div>
     </div>
+
+    <!-- RIGHT SIDE: ML Report -->
+    <div class="complete-right" id="complete-right" style="display:none;">
+      <div class="ml-report-container" id="ml-report-container"></div>
+    </div>
+
   </div>
 </div>
 

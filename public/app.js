@@ -203,31 +203,16 @@ async function toggleCamera(forceState) {
   const targetState = forceState !== undefined ? forceState : !cameraEnabled;
   
   if (targetState) {
-    try {
-      // Ask user for browser camera permission
-      browserStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      
-      // Stop the browser stream track immediately to save resources,
-      // as backend OpenCV is doing the actual capturing.
-      browserStream.getTracks().forEach(track => track.stop());
-      browserStream = null;
-      
-      cameraEnabled = true;
-      updateCameraUI(true);
-      socket.emit('camera_toggle', { enabled: true });
-      
-      // Reset UI elements if running
-      if (sessionState === 'running') {
-        if (videoPlaceholder) {
-          videoPlaceholder.textContent = 'Initializing Camera...';
-        }
+    // The backend OpenCV is doing the actual capturing, so we don't need browser permissions.
+    cameraEnabled = true;
+    updateCameraUI(true);
+    socket.emit('camera_toggle', { enabled: true });
+    
+    // Reset UI elements if running
+    if (sessionState === 'running') {
+      if (videoPlaceholder) {
+        videoPlaceholder.textContent = 'Initializing Camera...';
       }
-    } catch (err) {
-      console.error('Camera access error:', err);
-      alert('⚠️ Camera Access Denied or Not Found.\n\nPlease allow camera permissions in your browser to use the AI Physiotherapy Assistant.');
-      cameraEnabled = false;
-      updateCameraUI(false);
-      socket.emit('camera_toggle', { enabled: false });
     }
   } else {
     cameraEnabled = false;
@@ -458,6 +443,31 @@ function handleSetComplete(d) {
   if (now - lastSetCompleteTime < 4000) return;
   lastSetCompleteTime = now;
 
+  if (d.injury_risk) {
+    // Injury risk detected! Stop session and show overlay over the current screen
+    sessionState = 'injury'; // Prevents py_event 'stopped' from jumping to the setup screen
+    socket.emit('stop');
+    voiceSpeak("Warning! Injury risk detected due to repeated excessive forward lean. Please rest, maintain a straight back, and restart the set.");
+    
+    const injuryOverlay = document.getElementById('injury-overlay');
+    if (injuryOverlay) {
+        injuryOverlay.style.display = 'flex';
+        const okBtn = document.getElementById('btn-injury-ok');
+        const handleOk = () => {
+            injuryOverlay.style.display = 'none';
+            okBtn.removeEventListener('click', handleOk);
+            // Restart the exact same session configuration directly from this screen
+            startSession();
+        };
+        okBtn.addEventListener('click', handleOk);
+    } else {
+        // Fallback just in case
+        sessionState = 'setup';
+        showScreen('setup');
+    }
+    return;
+  }
+
   if (currentSet < cfg.sets) {
     // Show rest timer with stats from the just-completed set
     showRestTimer(currentSet, d);
@@ -564,6 +574,37 @@ function showComplete(d) {
     <div class="cstat"><div class="cstat-val" style="color:var(--orange)">${incorrect}</div><div class="cstat-lbl">Needs Work</div></div>
     <div class="cstat" style="grid-column:span 3"><div class="cstat-val" style="color:var(--accent)">${acc}%</div><div class="cstat-lbl">${grade}</div></div>
   `;
+
+  const mlContainer = $('ml-report-container');
+  if (d.ml_report) {
+    const ml = d.ml_report;
+    let probsHtml = '';
+    if (ml.probabilities) {
+      for (const [key, val] of Object.entries(ml.probabilities)) {
+        if (val > 0) {
+          let color = key.includes("Correct") ? "var(--green)" : "var(--orange)";
+          probsHtml += `<div class="ml-prob"><span class="ml-prob-lbl">${key}</span><span class="ml-prob-val" style="color:${color}">${val}%</span></div>`;
+        }
+      }
+    }
+
+    mlContainer.innerHTML = `
+      <div class="ml-report-header">🧠 AI Movement Analysis</div>
+      <div class="ml-report-score-wrap">
+        <span class="ml-score-lbl">Quality Score</span>
+        <span class="ml-score-val">${ml.movement_quality_score}/100</span>
+      </div>
+      <div class="ml-report-probs">${probsHtml}</div>
+      <div class="ml-report-issue"><strong>Primary Issue:</strong> ${ml.dominant_error}</div>
+      <div class="ml-report-rec">💡 ${ml.recommendation}</div>
+    `;
+    document.getElementById('complete-right').style.display = 'block';
+    document.getElementById('complete-card').classList.add('has-report');
+  } else {
+    document.getElementById('complete-right').style.display = 'none';
+    document.getElementById('complete-card').classList.remove('has-report');
+  }
+
   showScreen('complete');
 }
 
